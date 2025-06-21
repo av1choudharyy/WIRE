@@ -6,9 +6,9 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import "./services/dbService.js"; // MongoDB init
-import webhookRouter from "./routes/webhook.js";
-import { sendWhatsAppList } from "./utils/askForRating.js";
-import { saveReview } from "./services/dbService.js";
+import review from "./models/review.js";
+import { sendWhatsAppList, sendWhatsAppListBelow4 } from "./utils/askForRating.js";
+import { saveReview, isFollowUpAnswer } from "./services/dbService.js";
 import sendVoiceReviewRequest from "./utils/askForAudio.js";
 import { handleReviewInput } from "./services/aiService.js";
 import { uploadLocalFileToS3 } from "./services/s3Service.js";
@@ -138,25 +138,11 @@ async function processWhatsAppAudio(mediaId, bookingId) {
     
     console.log("Transcription completed:", transcription);
     
-    // Step 5: Clean transcribed text by asking AI to replace cuss words
-    const cleanTranscriptionPrompt = `Clean the following transcribed text by replacing any cuss words or profanity with *** (in any language). Return only the cleaned text, no other formatting or explanation.`;
-    
-    const cleanResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: cleanTranscriptionPrompt },
-        { role: "user", content: transcription?.trim() || "" },
-      ],
-    });
-    
-    const cleanedTranscription = cleanResponse.choices[0].message.content.trim();
-    console.log("AI-cleaned transcription:", cleanedTranscription);
-    
     // Clean up local file
     fs.unlinkSync(audioFileName);
     
     return {
-      transcription: cleanedTranscription,
+      transcription: transcription,
       s3AudioUrl
     };
     
@@ -209,24 +195,32 @@ app.post('/webhook', async (req, res) => {
     const bookingId = waId; // Assuming waId is the bookingId
     
     try {
-      // Handle rating selection from list
-      if (message.interactive && message.interactive.list_reply) {
-        await sendVoiceReviewRequest(waId); 
-        const rating = message.interactive.list_reply.id;
+      // Handle rating selection from buttons
+      if (message.interactive && message.interactive.button_reply) {
+        const rating = message.interactive.button_reply.id;
         console.log("Received WhatsApp rating:", { waId, rating });
         
-        await saveReview({
-          channel: 'whatsapp',
-          bookingId,
-          rating: rating ? parseInt(rating) : null
-        });
+        if (rating === "<3") {
+          // Send the below 4 rating options
+          await sendWhatsAppListBelow4(waId);
+        } else {
+          // Store the rating and send voice request
+          await sendVoiceReviewRequest(waId);
+          await saveReview({
+            channel: 'whatsapp',
+            bookingId,
+            rating: rating ? parseInt(rating) : null
+          });
+        }
         return res.status(200).send('EVENT_RECEIVED');
       }
       
       // Handle audio message
       if (message.type === 'audio' && message.audio) {
-        await sendImageReviewRequest(waId);
         console.log("Received WhatsApp audio message:", { waId, audioId: message.audio.id });
+        
+        // Check if this is a follow-up answer at the very start
+        const isFollowUp = await isFollowUpAnswer(bookingId);
         
         const result = await processWhatsAppAudio(message.audio.id, bookingId);
         const transcription = result.transcription;
@@ -256,32 +250,50 @@ app.post('/webhook', async (req, res) => {
           return res.status(200).send('EVENT_RECEIVED');
         }
         
-        const analysisResult = await handleReviewInput(transcription);
-        const original_review = analysisResult.original_review;
-        const sentiment = analysisResult.sentiment;
-        const keywords = analysisResult.keywords;
-        const follow_up = analysisResult.follow_up;
-        const review_length = analysisResult.review_length;
-        const quality = analysisResult.quality;
-        const language_detected = analysisResult.language_detected;
-        const translated_review = analysisResult.translated_review;
+        if (isFollowUp) {
+          // This is a follow-up answer, save it as such
+          await saveReview({
+            channel: 'whatsapp',
+            bookingId,
+            followUpAnswer: transcription,
+            media: [{ type: 'audio', url: s3AudioUrl }]
+          });
+          
+          console.log("WhatsApp follow-up audio answer processed and stored successfully");
+
+          await sendThankYouOrFollowUp(waId);
+          return res.status(200).send('EVENT_RECEIVED');
+        } else {
+          // This is a new review, process with AI
+          const analysisResult = await handleReviewInput(transcription);
+          const original_review = analysisResult.original_review;
+          const sentiment = analysisResult.sentiment;
+          const keywords = analysisResult.keywords;
+          const follow_up = analysisResult.follow_up;
+          const review_length = analysisResult.review_length;
+          const quality = analysisResult.quality;
+          const language_detected = analysisResult.language_detected;
+          const translated_review = analysisResult.translated_review;
+          
+          await saveReview({
+            channel: 'whatsapp',
+            bookingId,
+            original: transcription,
+            processed: original_review,
+            sentiment,
+            followUp: follow_up,
+            keywords,
+            reviewLength: review_length,
+            quality,
+            media: [{ type: 'audio', url: s3AudioUrl }],
+            languageDetected: language_detected,
+            translatedReview: translated_review,
+          });
+          await sendImageReviewRequest(waId);
+          
+          console.log("WhatsApp audio review processed and stored successfully");
+        }
         
-        await saveReview({
-          channel: 'whatsapp',
-          bookingId,
-          original: original_review,
-          processed: transcription,
-          sentiment,
-          followUp: follow_up,
-          keywords,
-          reviewLength: review_length,
-          quality,
-          media: [{ type: 'audio', url: s3AudioUrl }],
-          languageDetected: language_detected,
-          translatedReview: translated_review,
-        });
-        
-        console.log("WhatsApp audio processed and stored successfully");
         return res.status(200).send('EVENT_RECEIVED');
       }
       
@@ -289,6 +301,22 @@ app.post('/webhook', async (req, res) => {
       if (message.type === 'text' && message.text) {
         console.log("Received WhatsApp text message:", { waId, text: message.text.body });
         
+        // Check if this is a follow-up answer at the very start
+        const isFollowUp = await isFollowUpAnswer(bookingId);
+        
+        if (isFollowUp) {
+          // This is a follow-up answer, save it as such
+          await saveReview({
+            channel: 'whatsapp',
+            bookingId,
+            followUpAnswer: message.text.body
+          });
+          
+          console.log("WhatsApp follow-up text answer processed and stored successfully");
+          return res.status(200).send('EVENT_RECEIVED');
+        }
+        
+        // This is a new review or rating, process with AI
         const result = await handleReviewInput(message.text.body);
         const original_review = result.original_review;
         const sentiment = result.sentiment;
@@ -309,6 +337,9 @@ app.post('/webhook', async (req, res) => {
           });
           return res.status(200).send('EVENT_RECEIVED');
         }
+
+        // Send image review request for regular text reviews
+        await sendImageReviewRequest(waId);
 
         await saveReview({
           channel: 'whatsapp',
@@ -331,9 +362,10 @@ app.post('/webhook', async (req, res) => {
       
       // Handle image message
       if (message.type === 'image' && message.image) {
-        await sendThankYouOrFollowUp(waId);
+        const reviewData = await review.findOne({ bookingId });
+        const followUpQuestion = reviewData && reviewData.follow_up && reviewData.follow_up.question ? reviewData.follow_up.question : "";
         console.log("Received WhatsApp image message:", { waId, imageId: message.image.id });
-        
+        await sendThankYouOrFollowUp(waId, followUpQuestion);
         try {
           const result = await processWhatsAppImage(message.image.id, bookingId);
           const s3ImageUrl = result.s3ImageUrl;
@@ -344,6 +376,8 @@ app.post('/webhook', async (req, res) => {
             media: [{ type: 'image', url: s3ImageUrl }]
           });
           
+          // Get follow-up from DB and send final message
+          console.log("Sending final message with follow-up:", followUpQuestion);
           console.log("WhatsApp image processed and stored successfully");
           return res.status(200).send('EVENT_RECEIVED');
           
@@ -365,6 +399,17 @@ app.post('/webhook', async (req, res) => {
 app.post('/startReviewSession', async (req, res) => {
     await sendWhatsAppList(req.body.phoneNumber);
     res.status(200).json({ message: "Review session started, rating prompt sent" });
+});
+
+app.get('/reviews' , async (req, res) => {
+  console.log(req);
+  try {
+    const reviews = await review.find({});
+    res.status(200).json(reviews);
+  } catch (error) {
+    console.error("Error fetching reviews:", error);
+    res.status(500).json({ error: "Failed to fetch reviews" });
+  }
 });
 
 // Use the webhook router for POST requests

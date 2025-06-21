@@ -196,26 +196,14 @@ async function transcribeAudioViaUrl(audioUrl, bookingId) {
         console.log("Transcription type:", typeof transcription);
         console.log("Transcription length:", transcription ? transcription.length : 0);
         
-        // Clean transcribed text by asking AI to replace cuss words
-        const cleanTranscriptionPrompt = `Clean the following transcribed text by replacing any cuss words or profanity with *** (in any language). Return only the cleaned text, no other formatting or explanation.`;
-        
-        const cleanResponse = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: cleanTranscriptionPrompt },
-                { role: "user", content: transcription?.trim() || "" },
-            ],
-        });
-        
-        const cleanedTranscription = cleanResponse.choices[0].message.content.trim();
-        console.log("AI-cleaned transcription:", cleanedTranscription);
+        console.log("Raw transcription:", transcription);
         
         // Clean up local files - discard original OPUS completely
         fs.unlinkSync(originalFileName);
         fs.unlinkSync(convertedFileName);
         
         return {
-            transcription: cleanedTranscription,
+            transcription: transcription,
             s3AudioUrl: s3ConvertedAudioUrl // Return only the converted file URL
         };
     } catch (error) {

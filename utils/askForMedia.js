@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // === CONFIG ===
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN; // Your WhatsApp Cloud API token
-const PHONE_NUMBER_ID = '716535084869795'; // Replace with your phone number ID
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // Your WhatsApp Business phone number ID
 
 // === FUNCTION ===
 const sendImageReviewRequest = async (phoneNumber) => {
