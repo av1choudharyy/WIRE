@@ -16,6 +16,8 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 
 
+
+
 async function handleReviewInput(inputText) {
   if (!inputText || typeof inputText !== 'string' || !inputText.trim()) {
     throw new Error('Review input text is empty or invalid');
@@ -35,7 +37,7 @@ async function handleReviewInput(inputText) {
       original_review: inputText,
       sentiment: null,
       keywords: [],
-      follow_ups: [],
+      follow_up: null,
       review_length: inputText.length,
       followUpNeeded: false,
       quality: 100, // Default quality for rating-only input
@@ -48,19 +50,20 @@ async function handleReviewInput(inputText) {
   const prompt = `Analyze the following review. The review can be in any language and cuss words can be in any language.
 1. Detect the language of the review
 2. If the review is not in English, translate it to English
-3. Generate a statistic of how many percentage of cuss words are there (in any language)
-4. Classify the sentiment as positive, negative, or neutral
-5. Extract 1-2 important keywords from the original text
-6. If the review is negative, suggest 2 follow-up questions to ask
+3. Replace ALL cuss words/profanity with *** (in any language) in both original text and translation
+4. Generate a statistic of how many percentage of cuss words were there BEFORE replacement
+5. Classify the sentiment as positive, negative, or neutral
+6. Extract 1-2 important keywords from the cleaned text (after cuss word replacement)
+7. If the review is negative, suggest 1 follow-up question to ask
 
 Return as JSON with keys: 
-- original_review: the original review text exactly as provided
+- original_review: the original review text with cuss words replaced by ***
 - language_detected: the detected language code (e.g., "en", "es", "fr", "hi", etc.)
-- translated_review: the English translation (only if original is not English, otherwise null)
+- translated_review: the English translation with cuss words replaced by *** (only if original is not English, otherwise null)
 - sentiment: positive/negative/neutral
-- keywords: array of 1-2 keywords
-- follow_ups: array of follow-up questions (if negative)
-- cuss_words_percentage: percentage of cuss words`;
+- keywords: array of 1-2 keywords from cleaned text
+- follow_up: single follow-up question string (if negative), otherwise null
+- cuss_words_percentage: percentage of cuss words that were replaced`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -73,18 +76,27 @@ Return as JSON with keys:
   const responseString = JSON.parse(responseData.replace(/```json|```/g, '').trim());
 
   console.log("OpenAI response:", responseString);
+  console.log("Follow-up from OpenAI:", responseString.follow_up);
+  console.log("Follow-up type:", typeof responseString.follow_up);
 
-  let sentiment = "neutral", keywords = [], follow_ups = [], quality = 100 - (responseString.cuss_words_percentage || 0);
+  let sentiment = "neutral", keywords = [], follow_up = null, quality = 100 - (responseString.cuss_words_percentage || 0);
   let language_detected = "en", translated_review = null, original_review = inputText;
   let rating = null; // No rating extraction from regular reviews
 
   try {
     sentiment = responseString.sentiment;
     keywords = responseString.keywords || [];
-    follow_ups = responseString.follow_ups || [];
+    
+    // Handle single follow_up question as string
+    follow_up = responseString.follow_up && typeof responseString.follow_up === 'string' 
+      ? responseString.follow_up.trim() 
+      : null;
+    
     language_detected = responseString.language_detected || "en";
     translated_review = responseString.translated_review || null;
     original_review = responseString.original_review || inputText;
+    
+    console.log("Processed follow-up:", follow_up);
   } catch (e) {
     console.error("Error parsing OpenAI response:", e);
     // throw new Error("Failed to parse OpenAI response");
@@ -94,7 +106,7 @@ Return as JSON with keys:
     original_review,
     sentiment,
     keywords,
-    follow_ups,
+    follow_up,
     review_length: inputText.length,
     followUpNeeded: sentiment === "negative",
     quality: quality || 0,
@@ -168,12 +180,26 @@ async function transcribeAudioViaUrl(audioUrl, bookingId) {
         console.log("Transcription type:", typeof transcription);
         console.log("Transcription length:", transcription ? transcription.length : 0);
         
+        // Clean transcribed text by asking AI to replace cuss words
+        const cleanTranscriptionPrompt = `Clean the following transcribed text by replacing any cuss words or profanity with *** (in any language). Return only the cleaned text, no other formatting or explanation.`;
+        
+        const cleanResponse = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: cleanTranscriptionPrompt },
+                { role: "user", content: transcription?.trim() || "" },
+            ],
+        });
+        
+        const cleanedTranscription = cleanResponse.choices[0].message.content.trim();
+        console.log("AI-cleaned transcription:", cleanedTranscription);
+        
         // Clean up local files - discard original OPUS completely
         fs.unlinkSync(originalFileName);
         fs.unlinkSync(convertedFileName);
         
         return {
-            transcription: transcription?.trim() || "",
+            transcription: cleanedTranscription,
             s3AudioUrl: s3ConvertedAudioUrl // Return only the converted file URL
         };
     } catch (error) {

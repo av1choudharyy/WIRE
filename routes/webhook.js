@@ -1,10 +1,18 @@
 import express from "express";
 import { handleReviewInput, transcribeAudioViaUrl, uploadImageToS3 } from "../services/aiService.js";
 import { saveReview } from "../services/dbService.js";
-import client from 'twilio';
 import review from "../models/review.js";
+import sendRatingPrompt from "../utils/askForRating.js";
+import sendVoiceReviewRequest from "../utils/askForAudio.js";
+import sendImageReviewRequest from "../utils/askForMedia.js";
+import sendThankYouOrFollowUp from "../utils/finalMsg.js";
 const router = express.Router();
 
+
+router.post('/startReviewSession', async (req, res) => {
+    await sendRatingPrompt(req.body.phoneNumber);
+    res.status(200).json({ message: "Review session started, rating prompt sent" });
+});
 
 router.post("/processReview/:channel/:bookingId", async (req, res) => {
     const { channel, bookingId } = req.params;
@@ -27,7 +35,7 @@ router.post("/processReview/:channel/:bookingId", async (req, res) => {
             original_review = result.original_review;
             sentiment = result.sentiment;
             keywords = result.keywords;
-            follow_ups = result.follow_ups;
+            follow_ups = result.follow_up;
             review_length = result.review_length;
             quality = result.quality;
             language_detected = result.language_detected;
@@ -44,7 +52,7 @@ router.post("/processReview/:channel/:bookingId", async (req, res) => {
             original_review = analysisResult.original_review;
             sentiment = analysisResult.sentiment;
             keywords = analysisResult.keywords;
-            follow_ups = analysisResult.follow_ups;
+            follow_ups = analysisResult.follow_up;
             review_length = analysisResult.review_length;
             quality = analysisResult.quality;
             language_detected = analysisResult.language_detected;
@@ -71,7 +79,7 @@ router.post("/processReview/:channel/:bookingId", async (req, res) => {
             original: original_review,
             processed: processed_review,
             sentiment,
-            followUps: follow_ups,
+            followUp: follow_ups,
             keywords,
             reviewLength: review_length,
             quality,
@@ -151,7 +159,7 @@ router.post("/waWebhook", async (req, res) => {
                     original: null,
                     processed: null,
                     sentiment: null,
-                    followUps: [],
+                    followUp: null,
                     keywords: [],
                     reviewLength: 0,
                     quality: 0,
@@ -167,7 +175,7 @@ router.post("/waWebhook", async (req, res) => {
             const original_review = analysisResult.original_review;
             const sentiment = analysisResult.sentiment;
             const keywords = analysisResult.keywords;
-            const follow_ups = analysisResult.follow_ups;
+            const follow_up = analysisResult.follow_up;
             const review_length = analysisResult.review_length;
             const quality = analysisResult.quality;
             const language_detected = analysisResult.language_detected;
@@ -180,15 +188,17 @@ router.post("/waWebhook", async (req, res) => {
                 original: original_review,
                 processed: transcription,
                 sentiment,
-                followUps: follow_ups,
+                followUp: follow_up,
                 keywords,
                 reviewLength: review_length,
                 quality,
                 media: [{ type: 'audio', url: s3AudioUrl }], // Use S3 URL
                 languageDetected: language_detected,
                 translatedReview: translated_review,
-                rating: rating
             });
+            
+            // Send image review request, then they'll get final message after image
+            await sendImageReviewRequest(waId);
 
             res.status(200).json({ message: "WhatsApp audio processed and stored successfully" });
         }
@@ -197,19 +207,26 @@ router.post("/waWebhook", async (req, res) => {
             const original_review = result.original_review;
             const sentiment = result.sentiment;
             const keywords = result.keywords;
-            const follow_ups = result.follow_ups;
+            const follow_up = result.follow_up;
             const review_length = result.review_length;
             const quality = result.quality;
             const language_detected = result.language_detected;
             const translated_review = result.translated_review;
             const rating = result.rating;
+
+            if(rating){
+                await sendVoiceReviewRequest(waId);
+            }
+            else{
+                await sendImageReviewRequest(waId); // Send image review request if needed
+            }
             
             console.log("WhatsApp text review processed:", {
                 bookingId,
                 original: original_review,
                 processed: text,
                 sentiment,
-                followUps: follow_ups,
+                followUp: follow_up,
                 keywords,
                 reviewLength: review_length,
                 rating
@@ -220,7 +237,7 @@ router.post("/waWebhook", async (req, res) => {
                 original: original_review,
                 processed: text,
                 sentiment,
-                followUps: follow_ups,
+                followUp: follow_up,
                 keywords,
                 reviewLength: review_length,
                 quality,
@@ -241,12 +258,19 @@ router.post("/waWebhook", async (req, res) => {
                     original: null,
                     processed: null,
                     sentiment: null,
-                    followUps: [],
+                    followUp: null,
                     keywords: [],
                     reviewLength: 0,
                     quality: 0,
                     media: [{ type: 'image', url: s3ImageUrl }] // Use S3 URL
                 });
+                
+                // Get follow-up from DB and send final message
+                const reviewData = await review.findOne({ bookingId });
+                const followUpQuestion = reviewData && reviewData.follow_up ? reviewData.follow_up : "";
+                console.log("Sending final message with follow-up:", followUpQuestion);
+                await sendThankYouOrFollowUp(waId, followUpQuestion);
+                
             } catch (error) {
                 console.error("Error uploading image to S3:", error);
                 // Fallback to original URL if S3 upload fails
@@ -256,12 +280,18 @@ router.post("/waWebhook", async (req, res) => {
                     original: null,
                     processed: null,
                     sentiment: null,
-                    followUps: [],
+                    followUp: null,
                     keywords: [],
                     reviewLength: 0,
                     quality: 0,
                     media: [{ type: 'image', url: data }]
                 });
+                
+                // Get follow-up from DB and send final message even on S3 failure
+                const reviewData = await review.findOne({ bookingId });
+                const followUpQuestion = reviewData && reviewData.follow_up ? reviewData.follow_up : "";
+                console.log("Sending final message with follow-up (S3 fallback):", followUpQuestion);
+                await sendThankYouOrFollowUp(waId, followUpQuestion);
             }
 
             res.status(200).json({ message: "WhatsApp image processed and stored successfully" });
@@ -274,4 +304,11 @@ router.post("/waWebhook", async (req, res) => {
         res.status(500).json({ error: "Failed to process WhatsApp webhook" });
     }
 });
+
+router.post('/test', async (req, res) => {
+    const bookingId = req.body.bookingId;
+    const result = await review.findOne({ bookingId });
+    console.log(result);
+    res.status(200).json({ message: "Test successful", data: result });
+})
 export default router;

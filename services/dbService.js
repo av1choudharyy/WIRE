@@ -10,23 +10,46 @@ mongoose.connect(process.env.MONGO_URI, {
 
 
 
-async function saveReview({ channel, original, processed, sentiment, bookingId = "", followUps = [], keywords = [], reviewLength = 0, quality = 0, media = [], languageDetected = "en", translatedReview = null, rating = null }) {
+async function saveReview({ channel, original, processed, sentiment, bookingId = "", followUp = null, keywords = [], reviewLength = 0, quality = 0, media = [], languageDetected = "en", translatedReview = null, rating = null }) {
   // Check if a review with the same bookingId already exists
   const existingReview = await Review.findOne({ bookingId: bookingId });
   
   if (existingReview) {
-    // Update existing review
-    existingReview.channel = channel;
-    existingReview.original_review = original || existingReview.original_review;
-    existingReview.processed_review = processed || existingReview.processed_review;
-    existingReview.language_detected = languageDetected || existingReview.language_detected;
-    existingReview.translated_review = translatedReview || existingReview.translated_review;
-    existingReview.rating = rating || existingReview.rating;
-    existingReview.sentiment = sentiment || existingReview.sentiment;
-    existingReview.follow_ups = followUps.length > 0 ? followUps : existingReview.follow_ups;
-    existingReview.stats.review_length = reviewLength || existingReview.stats.review_length;
-    existingReview.stats.keywords = keywords.length > 0 ? keywords : existingReview.stats.keywords;
-    existingReview.stats.quality = quality || existingReview.stats.quality;
+    console.log(`Updating existing review for bookingId: ${bookingId}`);
+    
+    // Update existing review (only update if new value is not null/undefined)
+    if (channel !== null && channel !== undefined) existingReview.channel = channel;
+    if (original !== null && original !== undefined) existingReview.original_review = original;
+    if (processed !== null && processed !== undefined) existingReview.processed_review = processed;
+    if (languageDetected !== null && languageDetected !== undefined) existingReview.language_detected = languageDetected;
+    if (translatedReview !== null && translatedReview !== undefined) existingReview.translated_review = translatedReview;
+    if (rating !== null && rating !== undefined) existingReview.rating = rating;
+    if (sentiment !== null && sentiment !== undefined) existingReview.sentiment = sentiment;
+    
+    // If new content (text/audio transcription) is provided, append to follow_up field
+    if (original && original.trim()) {
+      const newFollowUpContent = `Follow-up: ${original.trim()}`;
+      if (existingReview.follow_up) {
+        console.log(`Appending to existing follow_up: "${existingReview.follow_up}"`);
+        existingReview.follow_up += `\n${newFollowUpContent}`;
+      } else {
+        console.log("Adding first follow_up content");
+        existingReview.follow_up = newFollowUpContent;
+      }
+      console.log(`Updated follow_up: "${existingReview.follow_up}"`);
+    } else if (followUp !== null && followUp !== undefined) {
+      existingReview.follow_up = followUp;
+    }
+    
+    if (reviewLength !== null && reviewLength !== undefined && reviewLength > 0) {
+      existingReview.stats.review_length = reviewLength;
+    }
+    if (keywords !== null && keywords !== undefined && keywords.length > 0) {
+      existingReview.stats.keywords = keywords;
+    }
+    if (quality !== null && quality !== undefined && quality > 0) {
+      existingReview.stats.quality = quality;
+    }
     
     // Merge media arrays (avoid duplicates)
     if (media.length > 0) {
@@ -38,6 +61,8 @@ async function saveReview({ channel, original, processed, sentiment, bookingId =
     await existingReview.save();
     console.log("Updated existing review for bookingId:", bookingId);
   } else {
+    console.log(`Creating new review for bookingId: ${bookingId}`);
+    
     // Create new review
     const review = new Review({
       bookingId: bookingId,
@@ -48,7 +73,7 @@ async function saveReview({ channel, original, processed, sentiment, bookingId =
       translated_review: translatedReview,
       rating: rating,
       sentiment,
-      follow_ups: followUps,
+      follow_up: followUp,
       media: media,
       stats: {
         review_length: reviewLength,

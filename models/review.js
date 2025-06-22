@@ -9,12 +9,7 @@ const reviewSchema = new mongoose.Schema({
     translated_review: String, // English translation (if original is not English)
     rating: Number, // Rating extracted from text (3, 4, or 5)
     sentiment: { type: String, enum: ['positive', 'negative', 'neutral'] },
-    follow_ups: [
-      {
-        question: String,
-        answer: String
-      }
-    ], // Store follow-up question/answer pairs
+    follow_up: String, // Single follow-up question string
     media: [
       {
         type: { type: String, enum: ['image', 'audio'] },
