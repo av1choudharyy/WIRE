@@ -22,7 +22,7 @@ router.post("/processReview/:channel/:bookingId", async (req, res) => {
         let processed_review = null;
         let sentiment = null;
         let keywords = [];
-        let follow_ups = [];
+        let follow_up = null;
         let review_length = 0;
         let quality = null;
         let media = [];
@@ -35,7 +35,7 @@ router.post("/processReview/:channel/:bookingId", async (req, res) => {
             original_review = result.original_review;
             sentiment = result.sentiment;
             keywords = result.keywords;
-            follow_ups = result.follow_up;
+            follow_up = result.follow_up;
             review_length = result.review_length;
             quality = result.quality;
             language_detected = result.language_detected;
@@ -52,7 +52,7 @@ router.post("/processReview/:channel/:bookingId", async (req, res) => {
             original_review = analysisResult.original_review;
             sentiment = analysisResult.sentiment;
             keywords = analysisResult.keywords;
-            follow_ups = analysisResult.follow_up;
+            follow_up = analysisResult.follow_up;
             review_length = analysisResult.review_length;
             quality = analysisResult.quality;
             language_detected = analysisResult.language_detected;
@@ -79,7 +79,7 @@ router.post("/processReview/:channel/:bookingId", async (req, res) => {
             original: original_review,
             processed: processed_review,
             sentiment,
-            followUp: follow_ups,
+            followUp: follow_up,
             keywords,
             reviewLength: review_length,
             quality,
@@ -216,17 +216,22 @@ router.post("/waWebhook", async (req, res) => {
 
             if(rating){
                 await sendVoiceReviewRequest(waId);
+                await saveReview({
+                    channel: 'whatsapp',
+                    bookingId,
+                    rating
+                });
+                res.status(200).json({ message: "WhatsApp text processed and rating prompt sent" });
+                return;
             }
-            else{
-                await sendImageReviewRequest(waId); // Send image review request if needed
-            }
-            
+
+            await sendImageReviewRequest(waId); // Send image review request if needed
             console.log("WhatsApp text review processed:", {
                 bookingId,
                 original: original_review,
                 processed: text,
                 sentiment,
-                followUp: follow_up,
+                follow_up,
                 keywords,
                 reviewLength: review_length,
                 rating
@@ -244,7 +249,6 @@ router.post("/waWebhook", async (req, res) => {
                 media: [],
                 languageDetected: language_detected,
                 translatedReview: translated_review,
-                rating
             });
 
             res.status(200).json({ message: "WhatsApp text processed and stored successfully" });
@@ -255,13 +259,6 @@ router.post("/waWebhook", async (req, res) => {
                 await saveReview({
                     channel: 'whatsapp',
                     bookingId,
-                    original: null,
-                    processed: null,
-                    sentiment: null,
-                    followUp: null,
-                    keywords: [],
-                    reviewLength: 0,
-                    quality: 0,
                     media: [{ type: 'image', url: s3ImageUrl }] // Use S3 URL
                 });
                 
@@ -311,4 +308,23 @@ router.post('/test', async (req, res) => {
     console.log(result);
     res.status(200).json({ message: "Test successful", data: result });
 })
+
+router.get('/waWebhook', (req, res) => {
+console.log(req);
+  const VERIFY_TOKEN = 'wire';
+
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token) {
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+      console.log('WEBHOOK_VERIFIED');
+      res.status(200).send(challenge); // Return hub.challenge
+    } else {
+      res.sendStatus(403); // Forbidden if token doesn't match
+    }
+  }
+});
+
 export default router;
