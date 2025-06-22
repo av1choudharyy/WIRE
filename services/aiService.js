@@ -55,6 +55,7 @@ async function handleReviewInput(inputText) {
 5. Classify the sentiment as positive, negative, or neutral
 6. Extract 1-2 important keywords from the cleaned text (after cuss word replacement)
 7. If the review is negative, suggest 1 follow-up question to ask
+8. Detect if the review is bad because of some technical issue
 
 Return as JSON with keys: 
 - original_review: the original review text with cuss words replaced by ***
@@ -63,7 +64,11 @@ Return as JSON with keys:
 - sentiment: positive/negative/neutral
 - keywords: array of 1-2 keywords from cleaned text
 - follow_up: single follow-up question string (if negative), otherwise null
-- cuss_words_percentage: percentage of cuss words that were replaced`;
+- cuss_words_percentage: percentage of cuss words that were replaced
+- jira_issue: boolean indicating if the review is bad because of a technical issue
+- jira_title: If the review is bad because of a technical issue, provide a concise title for a Jira issue. If not, return null
+- jira_description: If the review is bad because of a technical issue, provide a detailed description for the Jira issue. If not, return null
+`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -78,6 +83,9 @@ Return as JSON with keys:
   console.log("OpenAI response:", responseString);
   console.log("Follow-up from OpenAI:", responseString.follow_up);
   console.log("Follow-up type:", typeof responseString.follow_up);
+  console.log("Jira issue flag:", responseString.jira_issue);
+  console.log("Jira title:", responseString.jira_title);
+  console.log("Jira description:", responseString.jira_description);
 
   let sentiment = "neutral", keywords = [], follow_up = null, quality = 100 - (responseString.cuss_words_percentage || 0);
   let language_detected = "en", translated_review = null, original_review = inputText;
@@ -102,6 +110,11 @@ Return as JSON with keys:
     // throw new Error("Failed to parse OpenAI response");
   }
 
+  // Extract Jira-related fields
+  const jira_issue = responseString.jira_issue || false;
+  const jira_title = responseString.jira_title || null;
+  const jira_description = responseString.jira_description || null;
+
   return {
     original_review,
     sentiment,
@@ -112,7 +125,10 @@ Return as JSON with keys:
     quality: quality || 0,
     language_detected,
     translated_review,
-    rating
+    rating,
+    jira_issue,
+    jira_title,
+    jira_description
   };
 }
 
