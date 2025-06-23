@@ -2,7 +2,7 @@ import express from "express";
 import { handleReviewInput, transcribeAudioViaUrl, uploadImageToS3 } from "../services/aiService.js";
 import { saveReview } from "../services/dbService.js";
 import review from "../models/review.js";
-import sendRatingPrompt from "../utils/askForRating.js";
+import sendRatingPrompt, { sendWhatsAppList } from "../utils/askForRating.js";
 import sendVoiceReviewRequest from "../utils/askForAudio.js";
 import sendImageReviewRequest from "../utils/askForMedia.js";
 import sendThankYouOrFollowUp from "../utils/finalMsg.js";
@@ -10,7 +10,7 @@ const router = express.Router();
 
 
 router.post('/startReviewSession', async (req, res) => {
-    await sendRatingPrompt(req.body.phoneNumber);
+    await sendWhatsAppList(req.body.phoneNumber);
     res.status(200).json({ message: "Review session started, rating prompt sent" });
 });
 
@@ -108,36 +108,6 @@ router.get("/getReviews", async (req, res) => {
 
 router.post("/waWebhook", async (req, res) => {
     const {body} = req;
-//     {
-//   id: '6857d06ac31e827785bd845e',
-//   created: '2025-06-22T09:44:10.1597381Z',
-//   whatsappMessageId: 'wamid.HBgMOTE5NjQzNzgyNjkwFQIAEhgUM0E4OTc5QUQ4QUYyOUVEQzZFOTgA',
-//   conversationId: '6857cf1794b0b59ecee67c68',
-//   ticketId: '6857cf6e800b55b589f02738',
-//   text: null,
-//   type: 'audio',
-//   data: 'https://live-mt-server.wati.io/458328/api/file/showFile?fileName=data/audios/d8d763e9-ce9b-4c1a-b2fc-81b642f6b182.opus',
-//   sourceId: null,
-//   sourceUrl: null,
-//   timestamp: '1750585448',
-//   owner: false,
-//   eventType: 'message',
-//   statusString: 'SENT',
-//   avatarUrl: null,
-//   assignedId: null,
-//   operatorName: null,
-//   operatorEmail: null,
-//   waId: '919643782690',
-//   messageContact: null,
-//   senderName: 'Ankush',
-//   listReply: null,
-//   interactiveButtonReply: null,
-//   buttonReply: null,
-//   replyContextId: '',
-//   sourceType: 7,
-//   frequentlyForwarded: false,
-//   forwarded: false
-// }
     const { waId, text, type, data } = body;
     const bookingId = waId; // Assuming waId is the bookingId
     //assume opus file format
@@ -307,24 +277,6 @@ router.post('/test', async (req, res) => {
     const result = await review.findOne({ bookingId });
     console.log(result);
     res.status(200).json({ message: "Test successful", data: result });
-})
-
-router.get('/waWebhook', (req, res) => {
-console.log(req);
-  const VERIFY_TOKEN = 'wire';
-
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  if (mode && token) {
-    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-      console.log('WEBHOOK_VERIFIED');
-      res.status(200).send(challenge); // Return hub.challenge
-    } else {
-      res.sendStatus(403); // Forbidden if token doesn't match
-    }
-  }
 });
 
 export default router;

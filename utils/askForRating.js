@@ -32,4 +32,53 @@ const sendRatingPrompt = async (phoneNumber) => {
   }
 };
 
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = '716535084869795';
+
+const sendWhatsAppList = async (to) => {
+  try {
+    const response = await axios.post(
+      `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to,
+        type: "interactive",
+        interactive: {
+          type: "list",
+          header: { type: "text", text: "Rate Your Booking" },
+          body: { text: "How would you rate your booking?" },
+          footer: { text: "Your feedback helps us improve 💛" },
+          action: {
+            button: "Select Rating",
+            sections: [
+              {
+                title: "Ratings",
+                rows: [
+                  { id: "5", title: "⭐ 5 - Excellent" },
+                  { id: "4", title: "⭐ 4 - Good" },
+                  { id: "3", title: "⭐ 3 - Okay" },
+                  { id: "2", title: "⭐ 2 - Poor" },
+                  { id: "1", title: "⭐ 1 - Terrible" }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    console.log('✅ WhatsApp list message sent:', response.data);
+  } catch (error) {
+    console.error('❌ Failed to send WhatsApp list message:', error.response?.data || error.message);
+  }
+};
+
+export { sendWhatsAppList };
+
+
 export default sendRatingPrompt;

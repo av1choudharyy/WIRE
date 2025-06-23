@@ -1,33 +1,36 @@
 import axios from 'axios';
 
 // === CONFIG ===
-const WATI_ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1NWZmZjhiNi1lMzgyLTRhNDYtYmZjMi1lZmJlMmZhN2Q5MzUiLCJ1bmlxdWVfbmFtZSI6InNoaXZhbS5iaGFzaW5AaGVhZG91dC5jb20iLCJuYW1laWQiOiJzaGl2YW0uYmhhc2luQGhlYWRvdXQuY29tIiwiZW1haWwiOiJzaGl2YW0uYmhhc2luQGhlYWRvdXQuY29tIiwiYXV0aF90aW1lIjoiMDYvMjEvMjAyNSAwNzoyMDo1OSIsInRlbmFudF9pZCI6IjQ1ODMyOCIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.TDK1BKQwppc9P6MMLluWGOQrOisdZCtDGcCmoEpld6Q';
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = '716535084869795'; // Replace with your phone number ID
 
 
 // === FUNCTION ===
 const sendVoiceReviewRequest = async (phoneNumber) => {
-    try {
-      const response = await axios.post(
-        `https://live-mt-server.wati.io/458328/api/v1/sendSessionMessage/${phoneNumber}?messageText=${encodeURIComponent(
-          `Thanks a ton! 🙌
-  
-  Mind sending a quick voice note for your review 🎤 (30–60 sec) about your experience? No typing needed 😄 — we'd truly appreciate it! 💛`
-        )}`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${WATI_ACCESS_TOKEN}`,
-            Accept: '*/*',
-          }
+  try {
+    const response = await axios.post(
+      `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: phoneNumber,
+        type: "text",
+        text: {
+          body: `Thanks a ton! 🙌\n\nMind sending a quick voice note for your review 🎤 (30–60 sec) about your experience? No typing needed 😄 — we'd truly appreciate it! 💛`
         }
-      );
-  
-      console.log('✅ Voice review request sent:', response.data);
-    } catch (error) {
-      console.error('❌ Failed to send voice review request:', error.response?.data || error.message);
-    }
-  };
-  
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    console.log('✅ Voice review request sent via WhatsApp API:', response.data);
+  } catch (error) {
+    console.error('❌ Failed to send voice review request via WhatsApp API:', error.response?.data || error.message);
+  }
+};
+
 
 // === CALL FUNCTION ===
 export default sendVoiceReviewRequest;

@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const WATI_ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1NWZmZjhiNi1lMzgyLTRhNDYtYmZjMi1lZmJlMmZhN2Q5MzUiLCJ1bmlxdWVfbmFtZSI6InNoaXZhbS5iaGFzaW5AaGVhZG91dC5jb20iLCJuYW1laWQiOiJzaGl2YW0uYmhhc2luQGhlYWRvdXQuY29tIiwiZW1haWwiOiJzaGl2YW0uYmhhc2luQGhlYWRvdXQuY29tIiwiYXV0aF90aW1lIjoiMDYvMjEvMjAyNSAwNzoyMDo1OSIsInRlbmFudF9pZCI6IjQ1ODMyOCIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.TDK1BKQwppc9P6MMLluWGOQrOisdZCtDGcCmoEpld6Q';
+// === CONFIG ===
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN; // Your WhatsApp Cloud API token
+const PHONE_NUMBER_ID = '716535084869795'; // Replace with your phone number ID
 
 /**
  * Sends thank you or follow-up question based on passed follow-up string.
@@ -18,18 +20,25 @@ const sendThankYouOrFollowUp = async (phoneNumber, followUp = "") => {
 
   try {
     const response = await axios.post(
-      `https://live-mt-server.wati.io/458328/api/v1/sendSessionMessage/${phoneNumber}?messageText=${encodeURIComponent(messageText)}`,
-      {},
+      `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: phoneNumber,
+        type: "text",
+        text: {
+          body: messageText
+        }
+      },
       {
         headers: {
-          Authorization: `Bearer ${WATI_ACCESS_TOKEN}`,
-          Accept: '*/*',
-        },
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
       }
     );
-    console.log('✅ Final message sent:', response.data);
+    console.log('✅ Final message sent via WhatsApp API:', response.data);
   } catch (error) {
-    console.error('❌ Error sending final message:', error.response?.data || error.message);
+    console.error('❌ Error sending final message via WhatsApp API:', error.response?.data || error.message);
   }
 };
 
