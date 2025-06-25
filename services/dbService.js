@@ -10,7 +10,7 @@ mongoose.connect(process.env.MONGO_URI, {
 
 
 
-async function saveReview({ channel, original, processed, sentiment, bookingId = "", followUp = null, followUpAnswer = null, keywords = [], reviewLength = 0, quality = 0, media = [], languageDetected = "en", translatedReview = null, rating = null }) {
+async function saveReview({ channel, original, processed, sentiment, bookingId = "", name = null, followUp = null, followUpAnswer = null, keywords = [], reviewLength = 0, quality = 0, media = [], languageDetected = "en", translatedReview = null, rating = null }) {
   if (!bookingId) {
     console.error("Missing bookingId in saveReview call");
     return;
@@ -24,6 +24,7 @@ async function saveReview({ channel, original, processed, sentiment, bookingId =
     
     // Update existing review (only update non-null/undefined values)
     if (channel) existingReview.channel = channel;
+    if (name) existingReview.name = name;
     if (original) existingReview.original_review = original;
     if (processed) existingReview.processed_review = processed;
     if (languageDetected) existingReview.language_detected = languageDetected;
@@ -63,10 +64,25 @@ async function saveReview({ channel, original, processed, sentiment, bookingId =
       existingReview.stats.quality = quality;
     }
     
-    // Merge media arrays (avoid duplicates)
+    // Handle media with isActive flag for audio
     if (media && media.length > 0) {
       const existingUrls = existingReview.media.map(m => m.url);
       const newMedia = media.filter(m => !existingUrls.includes(m.url));
+      
+      // If adding new audio, set previous audio to inactive and new audio to active
+      for (const newMediaItem of newMedia) {
+        if (newMediaItem.type === 'audio') {
+          // Set all existing audio files to inactive
+          existingReview.media.forEach(m => {
+            if (m.type === 'audio') {
+              m.isActive = false;
+            }
+          });
+          // Set new audio to active
+          newMediaItem.isActive = true;
+        }
+      }
+      
       existingReview.media = [...existingReview.media, ...newMedia];
     }
     
@@ -76,9 +92,19 @@ async function saveReview({ channel, original, processed, sentiment, bookingId =
   } else {
     console.log(`Creating new review for bookingId: ${bookingId}`);
     
+    // Handle isActive flag for audio in new media
+    if (media && media.length > 0) {
+      media.forEach(mediaItem => {
+        if (mediaItem.type === 'audio') {
+          mediaItem.isActive = true; // First audio is always active
+        }
+      });
+    }
+    
     // Create new review
     const review = new Review({
       bookingId: bookingId,
+      name: name,
       channel,
       original_review: original,
       processed_review: processed,

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const reviewSchema = new mongoose.Schema({
     bookingId: String,
+    name: String, // User's name from WhatsApp contact
     channel: String, // 'ivr' or 'whatsapp'
     original_review: String,
     processed_review: String, // Gist of the review, cleaned up text
@@ -17,7 +18,8 @@ const reviewSchema = new mongoose.Schema({
       {
         type: { type: String, enum: ['image', 'audio'] },
         url: String,
-        path: String // For MVP, store local file path
+        path: String, // For MVP, store local file path
+        isActive: { type: Boolean, default: false } // For audio files, indicates the latest/active audio
       }
     ],
     stats: {

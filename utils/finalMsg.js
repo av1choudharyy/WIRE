@@ -45,7 +45,9 @@ const sendThankYouOrFollowUp = async (phoneNumber, followUp = "") => {
       console.error("No transcription available for the provided phone number.");
       return;
     }
-    messageText = `Thank you for your lovely review! Here is the transcription of it:\n\n*${transcription.trim()}*\n\nWe're so glad to have you with us & look forward to your next booking! 😊`;
+    // Escape asterisks in transcription to prevent formatting conflicts
+    const escapedTranscription = transcription.trim().replace(/\*\*\*/g, '* * *');
+    messageText = `Thank you for your lovely review! Here is the transcription of it:\n\n*${escapedTranscription}*\n\nWe're so glad to have you with us & look forward to your next booking! 😊`;
   } else {
     messageText = `Thanks a ton for the review! 🙏 We had a quick read and it'd be super helpful if you could answer this too:\n\n🎤 "${followUp}"\n\nA quick audio message (30–60 sec) would be perfect! 🎧`;
   }
@@ -56,10 +58,30 @@ const sendThankYouOrFollowUp = async (phoneNumber, followUp = "") => {
       {
         messaging_product: "whatsapp",
         to: phoneNumber,
-        type: "text",
-        text: {
-          body: messageText
-        }
+        type: !followUp || followUp.trim().length === 0 ? "interactive" : "text",
+        ...((!followUp || followUp.trim().length === 0) ? {
+          interactive: {
+            type: "button",
+            body: {
+              text: messageText
+            },
+            action: {
+              buttons: [
+                {
+                  type: "reply",
+                  reply: {
+                    id: "surprise_me",
+                    title: "🎉 Surprise Me!"
+                  }
+                }
+              ]
+            }
+          }
+        } : {
+          text: {
+            body: messageText
+          }
+        })
       },
       {
         headers: {
@@ -68,38 +90,24 @@ const sendThankYouOrFollowUp = async (phoneNumber, followUp = "") => {
         }
       }
     );
-    if(!followUp || followUp.trim().length === 0) {
-      await sendSuggestions(phoneNumber);
-    }
     console.log('✅ Final message sent via WhatsApp API:', response.data);
   } catch (error) {
     console.error('❌ Error sending final message via WhatsApp API:', error.response?.data || error.message);
   }
 };
 
-const sendSuggestions = async (phoneNumber) => {
-  /*
-    send 3 images with url to click on
-    here are some suggestions for you, book with us and get 10% off on your next booking!
-  */
-  const suggestions = [
-    {
-      type: "image",
-      url: "https://cdn-imgix.headout.com/tour/2638/TOUR-IMAGE/2eaad7e0-d3eb-43a0-ab28-f30cb384907b-1866-dubai-burj-khalifa-at-the-top-tickets--level-124---125-03.jpeg?w=613.2&h=384.3&crop=faces&auto=compress,format&fit=min",
-      caption: "Suggestion 1"
-    }
-  ];
-
+export const sendSuggestions = async (phoneNumber) => {
   try {
-    const response = await axios.post(
+    // First, send the image with suggestion
+    await axios.post(
       `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
       {
         messaging_product: "whatsapp",
         to: phoneNumber,
         type: "image",
         image: {
-          link: suggestions[0].url,
-          caption: 'Get 10% off on your next booking. Here are some suggestions for you \n*Burj Khalifa At The Top Tickets: Levels 124 & 125*\n\n🎟️ *Click to book now:*\nhttps://www.headout.com/burj-khalifa-tickets/burj-khalifa-at-the-top-tickets-level-124-125-e-1866/'
+          link: "https://cdn-imgix.headout.com/media/images/8a617303332aad243277344b589696b1-7.jpg?w=3360&h=2100&crop=faces&auto=compress%2Cformat&fit=min",
+          caption: 'Get 25% off on your next booking. Here is a suggestion \n*The Lion King Tickets*\n\n🎟️ *Click to book now:*\nhttps://www.headout.com/broadway-tickets/the-lion-king-e-507/'
         }
       },
       {
@@ -109,7 +117,25 @@ const sendSuggestions = async (phoneNumber) => {
         }
       }
     );
-    console.log('✅ Suggestions sent via WhatsApp API:', response.data);
+    await axios.post(
+      `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: phoneNumber,
+        type: "image",
+        image: {
+          link: "https://cdn-imgix.headout.com/media/images/e5c370149930d14831394d1c20750ff7-Broadway.jpg?w=630&h=630&crop=faces&auto=compress%2Cformat&fit=min",
+          caption: 'Get 25% off on your next booking. Here are 43 experience that you can take in Broadway \n*Broadway Tickets*\n\n🎟️ *Click to book now:*\nhttps://www.headout.com/broadway-tickets-c-24/'
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
   } catch (error) {
     console.error('❌ Error sending suggestions via WhatsApp API:', error.response?.data || error.message);
   }

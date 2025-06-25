@@ -14,7 +14,7 @@ import { handleReviewInput } from "./services/aiService.js";
 import { uploadLocalFileToS3 } from "./services/s3Service.js";
 import OpenAI from "openai";
 import sendImageReviewRequest from "./utils/askForMedia.js";
-import sendThankYouOrFollowUp from "./utils/finalMsg.js";
+import sendThankYouOrFollowUp, { sendSuggestions } from "./utils/finalMsg.js";
 
 dotenv.config();
 
@@ -183,21 +183,74 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', async (req, res) => {
   console.log('Received webhook POST request:', JSON.stringify(req.body, null, 2));
   
-  if(req.body.entry && req.body.entry[0] && req.body.entry[0].changes && req.body.entry[0].changes[0] &&  req.body.entry[0].changes[0].value && req.body.entry[0].changes[0].value.messages) {
-    const messages = req.body.entry[0].changes[0].value.messages;
-    if (!messages || messages.length === 0) {
-      console.error("No messages found in the webhook entry");
-      return res.status(200).send('EVENT_RECEIVED');
-    }
-    
-    const message = messages[0];
-    const waId = message.from;
-    const bookingId = waId; // Assuming waId is the bookingId
-    
-    try {
+  // Send immediate response to acknowledge receipt
+  res.status(200).send('EVENT_RECEIVED');
+  
+  // Process webhook data in the background
+  processWebhookInBackground(req.body);
+});
+
+// Background processing function
+async function processWebhookInBackground(body) {
+  try {
+    if(body.entry && body.entry[0] && body.entry[0].changes && body.entry[0].changes[0] && body.entry[0].changes[0].value && body.entry[0].changes[0].value.messages) {
+      const messages = body.entry[0].changes[0].value.messages;
+      const contact = body.entry[0].changes[0].value.contacts ? body.entry[0].changes[0].value.contacts[0] : null;
+      const name = contact ? contact.profile ? contact.profile.name : null : null;
+      
+      if (!messages || messages.length === 0) {
+        console.error("No messages found in the webhook entry");
+        return;
+      }
+      
+      const message = messages[0];
+      const waId = message.from;
+      const bookingId = waId; // Assuming waId is the bookingId
+      
       // Handle rating selection from buttons
       if (message.interactive && message.interactive.button_reply) {
-        const rating = message.interactive.button_reply.id;
+        const buttonId = message.interactive.button_reply.id;
+        console.log("Received WhatsApp button reply:", { waId, buttonId });
+        
+        // Handle "Surprise Me" button click
+        if (buttonId === "surprise_me") {
+          console.log("Surprise Me button clicked, sending suggestions...");
+          await sendSuggestions(waId);
+          return;
+        }
+        
+        // Handle "More Suggestions" button click
+        if (buttonId === "more_suggestions") {
+          console.log("More Suggestions button clicked, sending another suggestion...");
+          await sendSuggestions(waId);
+          return;
+        }
+        
+        // Handle "No Thanks" button click
+        if (buttonId === "no_thanks") {
+          console.log("No Thanks button clicked, sending thank you message...");
+          await axios.post(
+            `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
+            {
+              messaging_product: "whatsapp",
+              to: waId,
+              type: "text",
+              text: {
+                body: "Thank you! 😊 We're always here when you're ready for your next adventure. Have a wonderful day! 🌟"
+              }
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+          return;
+        }
+        
+        // Handle rating buttons
+        const rating = buttonId;
         console.log("Received WhatsApp rating:", { waId, rating });
         
         if (rating === "<3") {
@@ -209,10 +262,11 @@ app.post('/webhook', async (req, res) => {
           await saveReview({
             channel: 'whatsapp',
             bookingId,
+            name,
             rating: rating ? parseInt(rating) : null
           });
         }
-        return res.status(200).send('EVENT_RECEIVED');
+        return;
       }
       
       // Handle audio message
@@ -235,6 +289,7 @@ app.post('/webhook', async (req, res) => {
           await saveReview({
             channel: 'whatsapp',
             bookingId,
+            name,
             original: null,
             processed: null,
             sentiment: null,
@@ -247,7 +302,7 @@ app.post('/webhook', async (req, res) => {
             translatedReview: null,
             rating: null
           });
-          return res.status(200).send('EVENT_RECEIVED');
+          return;
         }
         
         if (isFollowUp) {
@@ -255,6 +310,7 @@ app.post('/webhook', async (req, res) => {
           await saveReview({
             channel: 'whatsapp',
             bookingId,
+            name,
             followUpAnswer: transcription,
             media: [{ type: 'audio', url: s3AudioUrl }]
           });
@@ -262,7 +318,7 @@ app.post('/webhook', async (req, res) => {
           console.log("WhatsApp follow-up audio answer processed and stored successfully");
 
           await sendThankYouOrFollowUp(waId);
-          return res.status(200).send('EVENT_RECEIVED');
+          return;
         } else {
           // This is a new review, process with AI
           const analysisResult = await handleReviewInput(transcription);
@@ -278,6 +334,7 @@ app.post('/webhook', async (req, res) => {
           await saveReview({
             channel: 'whatsapp',
             bookingId,
+            name,
             original: transcription,
             processed: original_review,
             sentiment,
@@ -294,7 +351,7 @@ app.post('/webhook', async (req, res) => {
           console.log("WhatsApp audio review processed and stored successfully");
         }
         
-        return res.status(200).send('EVENT_RECEIVED');
+        return;
       }
       
       // Handle text message
@@ -309,11 +366,12 @@ app.post('/webhook', async (req, res) => {
           await saveReview({
             channel: 'whatsapp',
             bookingId,
+            name,
             followUpAnswer: message.text.body
           });
           
           console.log("WhatsApp follow-up text answer processed and stored successfully");
-          return res.status(200).send('EVENT_RECEIVED');
+          return;
         }
         
         // This is a new review or rating, process with AI
@@ -333,9 +391,10 @@ app.post('/webhook', async (req, res) => {
           await saveReview({
             channel: 'whatsapp',
             bookingId,
+            name,
             rating
           });
-          return res.status(200).send('EVENT_RECEIVED');
+          return;
         }
 
         // Send image review request for regular text reviews
@@ -344,6 +403,7 @@ app.post('/webhook', async (req, res) => {
         await saveReview({
           channel: 'whatsapp',
           bookingId,
+          name,
           original: original_review,
           processed: message.text.body,
           sentiment,
@@ -357,7 +417,7 @@ app.post('/webhook', async (req, res) => {
         });
 
         console.log("WhatsApp text processed and stored successfully");
-        return res.status(200).send('EVENT_RECEIVED');
+        return;
       }
       
       // Handle image message
@@ -373,28 +433,25 @@ app.post('/webhook', async (req, res) => {
           await saveReview({
             channel: 'whatsapp',
             bookingId,
+            name,
             media: [{ type: 'image', url: s3ImageUrl }]
           });
           
           // Get follow-up from DB and send final message
           console.log("Sending final message with follow-up:", followUpQuestion);
           console.log("WhatsApp image processed and stored successfully");
-          return res.status(200).send('EVENT_RECEIVED');
+          return;
           
         } catch (error) {
           console.error("Error processing WhatsApp image:", error);
-          return res.status(200).send('EVENT_RECEIVED'); // Still acknowledge to prevent retries
+          return; // Still acknowledge to prevent retries
         }
       }
-      
-    } catch (error) {
-      console.error("Error processing WhatsApp message:", error);
-      return res.status(200).send('EVENT_RECEIVED'); // Still acknowledge to prevent retries
     }
+  } catch (error) {
+    console.error("Error processing WhatsApp message in background:", error);
   }
-  
-  res.status(200).send('EVENT_RECEIVED'); // Acknowledge receipt of the webhook
-});
+}
 
 app.post('/startReviewSession', async (req, res) => {
     await sendWhatsAppList(req.body.phoneNumber);
@@ -402,9 +459,8 @@ app.post('/startReviewSession', async (req, res) => {
 });
 
 app.get('/reviews' , async (req, res) => {
-  console.log(req);
   try {
-    const reviews = await review.find({});
+    const reviews = await review.find({}).sort({ created_at: -1 });
     res.status(200).json(reviews);
   } catch (error) {
     console.error("Error fetching reviews:", error);

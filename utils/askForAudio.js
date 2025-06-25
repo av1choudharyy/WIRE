@@ -15,7 +15,7 @@ const sendVoiceReviewRequest = async (phoneNumber) => {
         to: phoneNumber,
         type: "text",
         text: {
-          body: `Thanks a ton! 🙌\n\nMind sending a quick voice note for your review 🎤 (30–60 sec) about your experience? No typing needed 😄 — we'd truly appreciate it! 💛`
+          body: `Thanks a ton! 🙌\n\nMind sending a quick voice note for your review 🎤 (30–60 sec) about your experience? No typing needed 😄 — we'd truly appreciate it! 💜`
         }
       },
       {
